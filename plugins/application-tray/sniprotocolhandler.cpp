@@ -8,6 +8,7 @@
 
 #include "util.h"
 #include "plugin.h"
+#include "xdgactivationclient.h"
 
 #include "dbusmenuimporter.h"
 
@@ -317,7 +318,22 @@ bool SniTrayProtocolHandler::eventFilter(QObject *watched, QEvent *event)
         if (event->type() == QEvent::MouseButtonRelease) {
             QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
             if (mouseEvent->button() == Qt::LeftButton) {
-                m_sniInter->Activate(0, 0);
+                auto *activationClient = XdgActivationClient::instance();
+                if (activationClient->isActive()) {
+                    auto *win = window()->windowHandle();
+                    if (!win)
+                        return false;
+
+                    auto sniInter = m_sniInter;
+                    activationClient->requestToken(win, QString(), [sniInter](const QString &token) {
+                        if (!token.isEmpty()) {
+                            sniInter->ProvideXdgActivationToken(token);
+                        }
+                        sniInter->Activate(0, 0);
+                    });
+                } else {
+                    m_sniInter->Activate(0, 0);
+                }
             } else if (mouseEvent->button() == Qt::RightButton) {
                 if (!menuImporter()) {
                     m_sniInter->ContextMenu(0, 0);
@@ -328,8 +344,11 @@ bool SniTrayProtocolHandler::eventFilter(QObject *watched, QEvent *event)
                 menu->setFixedSize(menu->sizeHint());
                 menu->winId();
 
-                auto widget = static_cast<QWidget*>(parent());
-                auto plugin = Plugin::EmbedPlugin::get(widget->window()->windowHandle());
+                auto *win = window()->windowHandle();
+                if (!win)
+                    return false;
+
+                auto plugin = Plugin::EmbedPlugin::get(win);
                 auto geometry = plugin->pluginPos();
                 auto pluginPopup = Plugin::PluginPopup::get(menu->windowHandle());
                 pluginPopup->setPluginId("application-tray");
